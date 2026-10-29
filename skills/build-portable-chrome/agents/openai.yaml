@@ -1,0 +1,3 @@
+interface:
+  display_name: "Build Portable Chrome"
+  short_description: "Build offline portable Chrome from official installer"

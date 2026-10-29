@@ -1,0 +1,4 @@
+interface:
+  display_name: "Portable Xshell and Xftp"
+  short_description: "Build no-admin Xshell/Xftp with sanitized preferences"
+  default_prompt: "Use $build-portable-netsarang to build and verify a no-admin Xshell/Xftp package with settings, no connections, and my existing Personal registration."
