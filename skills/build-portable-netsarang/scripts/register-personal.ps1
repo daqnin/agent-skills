@@ -36,7 +36,8 @@ try {
             $principal=New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
             if (!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
                 $arguments='-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -Ensure'
-                $elevated=Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Verb RunAs -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+                $winPs51=Join-Path ([Environment]::GetFolderPath('Windows')) 'system32\WindowsPowerShell\v1.0\powershell.exe'
+                $elevated=Start-Process -FilePath $winPs51 -Verb RunAs -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
                 if ($elevated.ExitCode -ne 0) { throw 'Product registration failed. Run Register-Personal.cmd to see details.' }
                 return
             }

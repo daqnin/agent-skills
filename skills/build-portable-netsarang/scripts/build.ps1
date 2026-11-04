@@ -70,7 +70,10 @@ $safe = [ordered]@{XshellOptions=[ordered]@{}}
 foreach ($key in $shellKeys) { if ($sourceIni.Contains('XshellOptions') -and $sourceIni['XshellOptions'].Contains($key)) { $safe.XshellOptions[$key]=$sourceIni['XshellOptions'][$key] } }
 $safe.XshellOptions['RunOnWindowsStartup']='0'
 $safe.XshellOptions['AutoSaveSession']='0'
-if($BridgeDirectory){$safe.XshellOptions['SingleProcessMode']='1'}
+# Keep the vendor INI value of SingleProcessMode. Forcing it to 1 on Xshell 8
+# build 8.0.0.27 selects "Single Core Process Mode" and the viewer handshake
+# fails with "Create Child Frame Result : 0". The bridge already isolates
+# instances through scoped window lookup and suffixed named events.
 $safe['AutoStart']=[ordered]@{Count='0'}
 Write-Ini (Join-Path $data 'Xshell\Xshell.ini') $safe
 $sourceIni = Read-Ini (Join-Path $ProfilePath 'Xftp\Xftp.ini')
@@ -156,24 +159,29 @@ foreach ($app in @('Xshell','Xftp')) {
 $settings | Export-Clixml -LiteralPath (Join-Path $output 'Data\settings.clixml') -Encoding UTF8
 $registration | Export-Clixml -LiteralPath (Join-Path $output 'Data\registration.clixml') -Encoding UTF8
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'portable.ps1') -Destination (Join-Path $output 'portable.ps1')
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'register-personal.ps1') -Destination (Join-Path $output 'register-personal.ps1')
+if(!$BridgeDirectory){
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'register-personal.ps1') -Destination (Join-Path $output 'register-personal.ps1')
+}
 if($BridgeDirectory){
     $tools=Join-Path $output 'Tools'
     New-Item -ItemType Directory -Path $tools -Force | Out-Null
-    foreach($name in @('registry-bridge.dll','registry-runner.exe','registry-probe.exe')){Copy-Item -LiteralPath (Join-Path $BridgeDirectory $name) -Destination $tools}
+    foreach($name in @('registry-bridge.dll','registry-runner.exe','registry-probe.exe','xftp-path-probe.exe')){Copy-Item -LiteralPath (Join-Path $BridgeDirectory $name) -Destination $tools}
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'portable-user.ps1') -Destination (Join-Path $output 'portable.ps1') -Force
+    # One native x86 GUI launcher, delivered under both names. The file name selects the app.
+    foreach($app in @('Xshell','Xftp')){
+        Copy-Item -LiteralPath (Join-Path $BridgeDirectory 'portable-launcher.exe') -Destination (Join-Path $output "$app-Portable.exe")
+    }
 }
-Write-Text (Join-Path $output 'Register-Personal.cmd') "@echo off`r`npowershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"%~dp0register-personal.ps1`"`r`npause`r`n"
-foreach ($app in @('Xshell','Xftp')) {
-    $vbs=@'
-Set fso = CreateObject("Scripting.FileSystemObject")
-Set sh = CreateObject("WScript.Shell")
-root = fso.GetParentFolderName(WScript.ScriptFullName)
-script = fso.BuildPath(root, "portable.ps1")
-command = "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & script & """ -App APPNAME"
-sh.Run command, 0, False
-'@
-    Write-Text (Join-Path $output "$app-Portable.vbs") ($vbs.Replace('APPNAME',$app))
+if(!$BridgeDirectory){
+    # Legacy administrator branch only. Never selected for the delivered no-admin package.
+    Write-Text (Join-Path $output 'Register-Personal.cmd') "@echo off`r`npowershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"%~dp0register-personal.ps1`"`r`npause`r`n"
+    foreach ($app in @('Xshell','Xftp')) {
+        $cmd=@"
+@echo off
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0portable.ps1" -App $app
+"@
+        Write-Text (Join-Path $output "$app-Portable.cmd") $cmd
+    }
 }
 $readme=@"
 Xshell / Xftp 8 Portable
@@ -182,9 +190,11 @@ Xshell product version: $($versions.Xshell)
 Xftp product version: $($versions.Xftp)
 
 Extract the entire ZIP into a writable local directory. Double-click
-Xshell-Portable.vbs or Xftp-Portable.vbs. Windows PowerShell 5.1 and Windows
-Script Host are required. If VBS is disabled, run:
+Xshell-Portable.cmd or Xftp-Portable.cmd. Windows PowerShell 5.1 is required.
+To start from a terminal instead, run:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\portable.ps1 -App Xshell
+Xftp can be launched from inside Xshell with the built-in Xftp button where the
+installed build supports it. A separate Xftp-Portable.cmd is the reliable fallback.
 
 Close all installed Xshell/Xftp/helper processes first. One launcher can own
 the shared profile at a time. If another application is opened, wait for both
@@ -219,7 +229,7 @@ PERSONAL REGISTRATION / ERROR 40002
 This private package includes the source user's free-license name/email and
 original Personal installation registration. Do not distribute it publicly.
 It does not grant commercial rights or guarantee transfer to another machine.
-On a new PC, launch either Portable.vbs and approve Windows elevation once.
+On a new PC, launch either Portable.cmd and approve Windows elevation once.
 Registration then completes automatically and application startup continues.
 Register-Personal.cmd is a manual fallback and also requests elevation.
 The script writes the original vendor product registration to 32-bit HKLM
@@ -233,15 +243,43 @@ Free use is limited to personal and educational non-commercial purposes.
 "@
 }
 Write-Text (Join-Path $output 'USAGE.txt') $readme
+$registrationNotice=if($PreservePersonalRegistration){@"
+This build contains the original owner's Personal free registration and
+name/email. Keep it private. The vendor's free license allows ONE person to
+use one desktop plus one additional personal mobile device, for personal or
+educational non-commercial use only. Copying it to your OWN second device is
+within those terms; giving it to another person is not. If the vendor rejects
+the license on the other PC, use its official free-license flow there instead.
+"@}else{@"
+This build contains NO personal identity or license fields. On a PC that does
+not have the owner's legitimate Personal free registration, Xshell may report
+missing product information. Obtain your own free license through the vendor's
+official free-license flow; never reuse someone else's registration data.
+"@}
 if($BridgeDirectory){
-    Remove-Item -LiteralPath (Join-Path $output 'Register-Personal.cmd'),(Join-Path $output 'register-personal.ps1')
+    # Legacy helpers are never generated in this branch, so nothing needs deleting.
     Write-Text (Join-Path $output 'USAGE.txt') @"
 Xshell / Xftp 8 - current-user portable edition
 
 Extract the ZIP into a writable local folder; it has no enclosing directory.
-Double-click Xshell-Portable.vbs or Xftp-Portable.vbs. No administrator
+Double-click Xshell-Portable.exe or Xftp-Portable.exe. These are native x86
+GUI launchers: no cmd.exe, Windows Script Host, VBS, administrator
 registration, UAC prompt, service, driver or machine registry write is used.
-Windows PowerShell 5.1 and Windows Script Host are required.
+The launcher starts portable.ps1 hidden, which seeds the isolated registry
+namespace and calls Tools/registry-runner.exe. Windows PowerShell 5.1 must be
+present on the destination PC.
+
+Do NOT double-click App/Xshell 8/Xshell.exe or App/Xftp 8/Xftp.exe directly:
+without the runner the registry bridge is never injected, so no portable
+profile is used and the installed product's registry may be read or written.
+Use Xftp-Portable.exe as the reliable Xftp entry point. The built-in Xftp
+button inside Xshell is NOT supported on Xshell 8 build 8.0.0.27: the
+XshellCore viewer child terminates with 0xC0000005 before a child frame is
+created, even when the registry bridge is injected into it, and Xshell then
+exits. Tools/xftp-path-probe.exe only proves that Xftp's product-path lookup
+resolves into this package. As a practical alternative, add a custom Xshell
+button or quick command that runs Xftp-Portable.exe from this folder.
+See the skill's validation-boundary.md.
 
 Tools/registry-runner.exe loads a process-local registry bridge into the
 original 32-bit vendor programs and their children. NetSarang registry
@@ -251,10 +289,21 @@ Do not run both package launchers simultaneously. Close all package apps
 before moving the directory; saved settings are in Data/registry.clixml.
 New sessions are in Data/8. The initial archive excludes connection data.
 
-Original Personal registration and owner name/email are included as requested.
-Keep this private. Vendor license checks are unchanged. Free licensing is
-for personal/educational non-commercial use. Cross-PC acceptance depends on
-vendor validation. No promise of universal licensing or antivirus compatibility.
+MOVING TO ANOTHER PC
+The package is self-contained: vendor binaries, app-local x86 VC++ runtime
+DLLs, settings and registration data all live inside this folder. No
+installation, administrator rights or machine registry write is needed. The
+isolated namespace is derived from the package path, so extracting to a
+different drive or folder automatically builds a fresh namespace from
+Data/settings.clixml; no absolute source-machine paths are stored. Close both
+applications before copying a used package. Windows PowerShell 5.1 (built into
+Windows 10/11) is required on the destination PC. Path-portability has been
+tested on the source host; another hardware identity, offline license
+validation, ARM64 and other Windows versions have not been verified.
+
+$registrationNotice
+Vendor license checks are unchanged. No promise of universal licensing or
+antivirus compatibility.
 
 Xshell: $($versions.Xshell)
 Xftp: $($versions.Xftp)

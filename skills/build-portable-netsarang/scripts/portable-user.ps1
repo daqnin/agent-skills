@@ -31,7 +31,13 @@ try {
     foreach($name in @('Xshell','Xftp')){
         New-ItemProperty -Path (Join-Path $machineRoot "$name\8") -Name Path -Value (Join-Path $root "App\$name 8") -Force | Out-Null
     }
-    New-ItemProperty -Path (Join-Path $userRoot 'Xshell\8') -Name MultiCoreProcess -Value 0 -PropertyType DWord -Force | Out-Null
+    # Keep the vendor's original core-process preference. Forcing single-core
+    # made Xshell 8 build 8.0.0.27 fail the viewer handshake
+    # ("Create Child Frame Result : 0" / "Failed to initialize viewer instance").
+    $coreMode=@(Import-Clixml -LiteralPath (Join-Path $root 'Data\settings.clixml')) | Where-Object { $_.Name -eq 'MultiCoreProcess' } | Select-Object -First 1
+    if($coreMode){
+        New-ItemProperty -Path (Join-Path $userRoot 'Xshell\8') -Name MultiCoreProcess -Value $coreMode.Value -PropertyType $coreMode.Kind -Force | Out-Null
+    }
     $p=Join-Path $userRoot 'Common\8\UserData'
     New-Item -Path $p -Force | Out-Null
     New-ItemProperty -Path $p -Name UserDataPath -Value (Join-Path $root 'Data\8') -Force | Out-Null
@@ -45,6 +51,11 @@ try {
         & (Join-Path $root 'Tools\registry-runner.exe') $probe
         if($LASTEXITCODE){throw 'Registry isolation probe failed'}
         Remove-Item -LiteralPath $p
+        # Xshell locates its built-in Xftp target through these vendor paths.
+        $pathProbe=Join-Path $root 'Tools\xftp-path-probe.exe'
+        if(!(Test-Path -LiteralPath $pathProbe)){throw 'Xftp path probe not included.'}
+        & (Join-Path $root 'Tools\registry-runner.exe') $pathProbe
+        if($LASTEXITCODE){throw 'Portable Xftp/Xshell path routing probe failed'}
         return
     }
     $exe=Join-Path $root "App\$App 8\$App.exe"

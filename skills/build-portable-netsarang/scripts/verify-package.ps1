@@ -14,11 +14,11 @@ try{
     foreach($entry in $zip.Entries){
         $name=$entry.FullName.Replace('\','/')
         if($name.EndsWith('/')){continue}
-        if($name -match '(^|/)\.\.(/|$)|^/|^[A-Za-z]:|(^|/)(SECSH|Credential|applog|Logs|\.git)(/|$)|\.(xsh|xfp|pri|mpw|log|bak|reg)$|LocalBookmark|Data/registry.clixml|register-personal|Register-Personal'){throw 'Forbidden archive path.'}
+        if($name -match '(^|/)\.\.(/|$)|^/|^[A-Za-z]:|(^|/)(SECSH|Credential|applog|Logs|\.git)(/|$)|\.(xsh|xfp|pri|mpw|log|bak|reg)$|LocalBookmark|Data/registry.clixml|register-personal|Register-Personal|(^|/)(Xshell|Xftp)-Portable\.(cmd|vbs)$'){throw 'Forbidden archive path.'}
         if($entries.ContainsKey($name)){throw 'Duplicate archive entry.'}
         $entries[$name]=$entry
     }
-    if(!$entries.ContainsKey('App/Xshell 8/Xshell.exe') -or !$entries.ContainsKey('App/Xftp 8/Xftp.exe') -or !$entries.ContainsKey('portable.ps1')){throw 'Missing root-level application files or enclosing ZIP directory.'}
+    if(!$entries.ContainsKey('App/Xshell 8/Xshell.exe') -or !$entries.ContainsKey('App/Xftp 8/Xftp.exe') -or !$entries.ContainsKey('portable.ps1') -or !$entries.ContainsKey('Xshell-Portable.exe') -or !$entries.ContainsKey('Xftp-Portable.exe')){throw 'Missing root-level application files, native launchers or enclosing ZIP directory.'}
     if($entries.Count -ne $manifest.Files.Count+1){throw 'Archive count differs from manifest.'}
     $seen=@{}
     foreach($file in $manifest.Files){
@@ -61,8 +61,14 @@ if($launcher -match '(?i)-Verb\s+RunAs|register-personal|HKLM:|Restore-Journal')
 if((Get-FileHash -LiteralPath ($root+'.zip')).Hash.ToLowerInvariant() -ne (Get-Content -LiteralPath ($root+'.zip.sha256') -Raw).Split(' ')[0]){throw 'ZIP checksum mismatch.'}
 if($RunProbe){
     if(Test-Path 'HKLM:\SOFTWARE\WOW6432Node\NetSarang\Probe'){throw 'Machine probe key already exists; use an isolated environment.'}
-    & (Join-Path $PSHOME 'powershell.exe') -NoProfile -File (Join-Path $root 'portable.ps1') -SelfTest
-    if($LASTEXITCODE){throw 'Parent/child probe failed.'}
+    # $PSHOME\powershell.exe does not exist on a PowerShell 7 host; the probe targets Windows PowerShell 5.1.
+    $ps51=Join-Path ([Environment]::GetFolderPath('Windows')) 'system32\WindowsPowerShell\v1.0\powershell.exe'
+    if(!(Test-Path -LiteralPath $ps51)){throw 'Windows PowerShell 5.1 is required for the -SelfTest probe.'}
+    $realKey='HKLM:\SOFTWARE\WOW6432Node\NetSarang\Xftp\8'
+    $realBefore=(Get-ItemProperty $realKey -ErrorAction SilentlyContinue).Path
+    & $ps51 -NoProfile -File (Join-Path $root 'portable.ps1') -SelfTest
+    if($LASTEXITCODE){throw 'Parent/child, portable Xftp/Xshell path routing probe failed.'}
+    if((Get-ItemProperty $realKey -ErrorAction SilentlyContinue).Path -ne $realBefore){throw 'Real HKLM Xftp Path was modified by the probe.'}
     if(Test-Path 'HKLM:\SOFTWARE\WOW6432Node\NetSarang\Probe'){throw 'Unexpected machine probe key.'}
 }
-Write-Output "PASS: $($manifest.Files.Count) manifest files; ZIP/staging hashes; rootless layout; original executables; sanitized profiles; original registration; no admin launcher."
+Write-Output "PASS: $($manifest.Files.Count) manifest files; ZIP/staging hashes; rootless layout; native exe launchers only; original executables; sanitized profiles; original registration; parent/child isolation and portable Xftp path routing; no admin launcher."

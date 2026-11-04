@@ -75,7 +75,8 @@ try {
     }
     $settingsFile = Join-Path $root 'Data\settings.clixml'
     $registrationArgs='-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $root 'register-personal.ps1') + '" -Ensure'
-    $registration=Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $registrationArgs -WindowStyle Hidden -Wait -PassThru
+    $winPs51=Join-Path ([Environment]::GetFolderPath('Windows')) 'system32\WindowsPowerShell\v1.0\powershell.exe'
+    $registration=Start-Process -FilePath $winPs51 -ArgumentList $registrationArgs -WindowStyle Hidden -Wait -PassThru
     if ($registration.ExitCode -ne 0) { throw 'Product registration failed or Windows elevation was cancelled. Run Register-Personal.cmd for details. Existing different registrations are not overwritten.' }
     $settings = @(Import-Clixml -LiteralPath $settingsFile)
     Begin-Transaction
