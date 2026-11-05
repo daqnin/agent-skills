@@ -315,6 +315,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip=$output+'.zip'
 [IO.Compression.ZipFile]::CreateFromDirectory($output,$zip,[IO.Compression.CompressionLevel]::Optimal,$false)
 $hash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-Write-Text ($zip+'.sha256') ($hash+'  '+[IO.Path]::GetFileName($zip)+[Environment]::NewLine)
+# LF endings keep `sha256sum -c` usable in Git Bash as well as PowerShell.
+Write-Text ($zip+'.sha256') ($hash+'  '+[IO.Path]::GetFileName($zip)+"`n")
 Write-Output "Created: $zip"
 Write-Output "SHA256: $hash"
