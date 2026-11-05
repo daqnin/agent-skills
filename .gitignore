@@ -2,3 +2,6 @@
 .DS_Store
 Thumbs.db
 *.log
+
+# Local WorkBuddy project data (session memory, not part of the skill repo).
+.workbuddy/
